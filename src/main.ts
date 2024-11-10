@@ -96,7 +96,9 @@ leaflet
 const playerMarker = leaflet.marker(OAKES_CLASSROOM);
 // add a tooltip to the player marker with the player's latitudes and longitudes
 playerMarker.bindTooltip(
-  `Player at ${OAKES_CLASSROOM.lat}, ${OAKES_CLASSROOM.lng}`,
+  `Player at ${Math.floor(OAKES_CLASSROOM.lat * 10000)}, ${
+    Math.ceil(OAKES_CLASSROOM.lng * 10000)
+  }`,
 );
 
 playerMarker.addTo(map);
@@ -104,15 +106,40 @@ playerMarker.addTo(map);
 // Map to store the coin count for each cache cell based on its coordinates
 const cacheCoinsMap = new Map<string, number>();
 
+// Flyweight pattern implementation for Cells without a class
+interface CellFlyweight {
+  getCell(i: number, j: number): Cell;
+}
+
+// Map to store unique Cell instances
+const cellMap = new Map<string, Cell>();
+
+// Function to retrieve or create unique Cell instances
+const getCell: CellFlyweight["getCell"] = (i, j) => {
+  const key = `${i}:${j}`;
+
+  // Check if the cell already exists in the map
+  if (!cellMap.has(key)) {
+    // If not, create and store it in the map
+    const newCell: Cell = { i, j };
+    cellMap.set(key, newCell);
+  }
+
+  // Return the existing or newly created cell
+  return cellMap.get(key)!;
+};
+
 // Add caches to the map by cell numbers
 function spawnCache(i: number, j: number) {
-  // Generate a unique key for each cache based on its coordinates
-  const cacheKey = `${i}:${j}`;
+  const cell = getCell(i, j); // Retrieve the unique Cell instance
+
+  // Generate a unique key for each cache based on its cell
+  const cacheKey = `${cell.i}:${cell.j}`;
 
   // Initialize the cache's coin count only once if it doesn't already exist
   if (!cacheCoinsMap.has(cacheKey)) {
     const initialCoins = Math.floor(
-      luck([i, j, "initialValue"].toString()) * 10,
+      luck([cell.i, cell.j, "initialValue"].toString()) * 10,
     );
     cacheCoinsMap.set(cacheKey, initialCoins);
   }
@@ -120,8 +147,14 @@ function spawnCache(i: number, j: number) {
   // Convert cell numbers into lat/lng bounds
   const origin = OAKES_CLASSROOM;
   const bounds = leaflet.latLngBounds([
-    [origin.lat + i * TILE_DEGREES, origin.lng + j * TILE_DEGREES],
-    [origin.lat + (i + 1) * TILE_DEGREES, origin.lng + (j + 1) * TILE_DEGREES],
+    [
+      origin.lat + cell.i * TILE_DEGREES,
+      origin.lng + cell.j * TILE_DEGREES,
+    ],
+    [
+      origin.lat + (cell.i + 1) * TILE_DEGREES,
+      origin.lng + (cell.j + 1) * TILE_DEGREES,
+    ],
   ]);
 
   // Add a rectangle to the map to represent the cache
@@ -130,7 +163,9 @@ function spawnCache(i: number, j: number) {
 
   // Add a tooltip to the rect that displays the cache's position in latitudes and longitudes
   rect.bindTooltip(
-    `Cache at ${bounds.getCenter().lat}, ${bounds.getCenter().lng}`,
+    `Cache at ${Math.floor(bounds.getCenter().lat * 10000)}, ${
+      Math.ceil(bounds.getCenter().lng * 10000)
+    }`,
   );
 
   // Handle interactions with the cache
@@ -176,7 +211,7 @@ function spawnCache(i: number, j: number) {
   });
 }
 
-// Add caches around the player's location
+// Example usage in the neighborhood spawning logic
 for (let i = -NEIGHBORHOOD_SIZE; i <= NEIGHBORHOOD_SIZE; i++) {
   for (let j = -NEIGHBORHOOD_SIZE; j <= NEIGHBORHOOD_SIZE; j++) {
     if (luck([i, j, "spawn"].toString()) < CACHE_SPAWN_PROBABILITY) {
