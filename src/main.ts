@@ -11,31 +11,31 @@ import "./leafletWorkaround.ts";
 // Deterministic random number generator
 import luck from "./luck.ts";
 
-// create interface for cell
+// Interface for cell
 interface Cell {
-  i: number;
-  j: number;
+  lat: number;
+  lng: number;
 }
 
-// create interface for cache
+// Interface for cache
 interface Cache {
   cell: Cell;
-  coins: number;
+  coins: Coin[];
 }
 
-// create interface for coin
+// Interface for coin
 interface Coin {
   cell: Cell;
   serial: number;
 }
 
-// create div function
+// Create a div function
 function createDiv() {
   const div = document.createElement("div");
   return div;
 }
 
-// create div for app title
+// Create div for app title
 const appTitle = createDiv();
 appTitle.innerHTML = "Geocoin Carrier";
 appTitle.style.textAlign = "center";
@@ -43,37 +43,35 @@ appTitle.style.fontSize = "2rem";
 appTitle.style.fontWeight = "bold";
 document.body.appendChild(appTitle);
 
-// create div for control panel
+// Create div for control panel
 const controlPanel = createDiv();
 controlPanel.style.display = "flex";
 controlPanel.style.justifyContent = "center";
 document.body.appendChild(controlPanel);
 
-// create div for map
+// Create div for map
 const mapDiv = createDiv();
 mapDiv.style.width = "100vw";
 mapDiv.style.height = "50vh";
 document.body.appendChild(mapDiv);
 
-// create div for inventory
+// Create div for inventory
 const inventory = createDiv();
 inventory.style.display = "flex";
 inventory.style.justifyContent = "center";
 document.body.appendChild(inventory);
-inventory.innerHTML = "You have 0 coins";
+inventory.innerHTML = "Inventory: No coins collected.";
 
-let coins = 0;
-
-// Location of our classroom (as identified on Google Maps)
+// Classroom location
 const OAKES_CLASSROOM = leaflet.latLng(36.98949379578401, -122.06277128548504);
 
-// Tunable gameplay parameters
+// Gameplay parameters
 const GAMEPLAY_ZOOM_LEVEL = 19;
 const TILE_DEGREES = 1e-4;
 const NEIGHBORHOOD_SIZE = 8;
 const CACHE_SPAWN_PROBABILITY = 0.1;
 
-// Create the map (element with id "map" is defined in index.html)
+// Create the map
 const map = leaflet.map(mapDiv, {
   center: OAKES_CLASSROOM,
   zoom: GAMEPLAY_ZOOM_LEVEL,
@@ -83,7 +81,7 @@ const map = leaflet.map(mapDiv, {
   scrollWheelZoom: false,
 });
 
-// Populate the map with a background tile layer
+// Background tile layer
 leaflet
   .tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom: 19,
@@ -92,126 +90,157 @@ leaflet
   })
   .addTo(map);
 
-// Add a marker to represent the player
+// Add player marker
 const playerMarker = leaflet.marker(OAKES_CLASSROOM);
-// add a tooltip to the player marker with the player's latitudes and longitudes
 playerMarker.bindTooltip(
-  `Player at ${Math.floor(OAKES_CLASSROOM.lat * 10000)}, ${
-    Math.ceil(OAKES_CLASSROOM.lng * 10000)
+  `Player at ${formatCoord(OAKES_CLASSROOM.lat)}, ${
+    formatCoord(OAKES_CLASSROOM.lng)
   }`,
 );
-
 playerMarker.addTo(map);
 
-// Map to store the coin count for each cache cell based on its coordinates
-const cacheCoinsMap = new Map<string, number>();
+// Map for unique cache data storage
+const cacheDataMap = new Map<string, Cache>();
 
-// Flyweight pattern implementation for Cells without a class
+// Flyweight pattern for unique Cell instances
 interface CellFlyweight {
-  getCell(i: number, j: number): Cell;
+  getCell(lat: number, lng: number): Cell;
 }
-
-// Map to store unique Cell instances
 const cellMap = new Map<string, Cell>();
-
-// Function to retrieve or create unique Cell instances
-const getCell: CellFlyweight["getCell"] = (i, j) => {
-  const key = `${i}:${j}`;
-
-  // Check if the cell already exists in the map
+const getCell: CellFlyweight["getCell"] = (lat, lng) => {
+  const key = `${lat}:${lng}`;
   if (!cellMap.has(key)) {
-    // If not, create and store it in the map
-    const newCell: Cell = { i, j };
-    cellMap.set(key, newCell);
+    cellMap.set(key, { lat, lng });
   }
-
-  // Return the existing or newly created cell
   return cellMap.get(key)!;
 };
 
-// Add caches to the map by cell numbers
-function spawnCache(i: number, j: number) {
-  const cell = getCell(i, j); // Retrieve the unique Cell instance
+// Player inventory management
+const playerInventory = {
+  coins: [] as Coin[],
+};
 
-  // Generate a unique key for each cache based on its cell
-  const cacheKey = `${cell.i}:${cell.j}`;
+// Format latitude or longitude
+function formatCoord(coord: number) {
+  if (coord >= 0) {
+    return Math.floor(coord * 10000);
+  } else {
+    return Math.ceil(coord * 10000);
+  }
+}
 
-  // Initialize the cache's coin count only once if it doesn't already exist
-  if (!cacheCoinsMap.has(cacheKey)) {
-    const initialCoins = Math.floor(
-      luck([cell.i, cell.j, "initialValue"].toString()) * 10,
+// Update inventory UI
+function updateInventory(coin: Coin, action: "add" | "remove") {
+  if (action === "add") {
+    playerInventory.coins.push(coin);
+  } else {
+    playerInventory.coins = playerInventory.coins.filter((c) =>
+      !(c.cell.lat === formatCoord(coin.cell.lat) &&
+        c.cell.lng === formatCoord(coin.cell.lng) && c.serial === coin.serial)
     );
-    cacheCoinsMap.set(cacheKey, initialCoins);
+  }
+  inventory.innerHTML = `Inventory: ${
+    playerInventory.coins.length > 0
+      ? playerInventory.coins.map((coin) =>
+        `${formatCoord(coin.cell.lat)}:${
+          formatCoord(coin.cell.lng)
+        }#${coin.serial}`
+      ).join(", ")
+      : "No coins collected."
+  }`;
+}
+
+// Update popup with current coin list
+function updatePopupCoins(coins: Coin[], popupDiv: HTMLDivElement) {
+  const coinList = popupDiv.querySelector("#coinList")!;
+  coinList.innerHTML = coins.map((coin) =>
+    `<li>${formatCoord(coin.cell.lat)}:${
+      formatCoord(coin.cell.lng)
+    }#${coin.serial}</li>`
+  ).join("");
+}
+
+// Add caches with coins to the map by latitude and longitude
+function spawnCache(i: number, j: number) {
+  // Calculate latitude and longitude based on i, j offsets from origin
+  const lat = OAKES_CLASSROOM.lat + i * TILE_DEGREES;
+  const lng = OAKES_CLASSROOM.lng + j * TILE_DEGREES;
+  const cell = getCell(lat, lng);
+  const cacheKey = `${cell.lat}:${cell.lng}`;
+
+  // Initialize cache and coins if it doesn't exist
+  if (!cacheDataMap.has(cacheKey)) {
+    const initialCoins = Math.floor(
+      luck([lat, lng, "initialValue"].toString()) * 10,
+    );
+    const coins: Coin[] = [];
+    for (let serial = 0; serial < initialCoins; serial++) {
+      coins.push({ cell, serial });
+    }
+    cacheDataMap.set(cacheKey, { cell, coins });
   }
 
-  // Convert cell numbers into lat/lng bounds
-  const origin = OAKES_CLASSROOM;
+  const cache = cacheDataMap.get(cacheKey)!;
+
+  // Define bounds for cache on map
   const bounds = leaflet.latLngBounds([
-    [
-      origin.lat + cell.i * TILE_DEGREES,
-      origin.lng + cell.j * TILE_DEGREES,
-    ],
-    [
-      origin.lat + (cell.i + 1) * TILE_DEGREES,
-      origin.lng + (cell.j + 1) * TILE_DEGREES,
-    ],
+    [lat, lng],
+    [lat + TILE_DEGREES, lng + TILE_DEGREES],
   ]);
 
-  // Add a rectangle to the map to represent the cache
+  // Rectangle to represent cache
   const rect = leaflet.rectangle(bounds);
   rect.addTo(map);
-
-  // Add a tooltip to the rect that displays the cache's position in latitudes and longitudes
   rect.bindTooltip(
-    `Cache at ${Math.floor(bounds.getCenter().lat * 10000)}, ${
-      Math.ceil(bounds.getCenter().lng * 10000)
+    `Cache at ${formatCoord(bounds.getCenter().lat)}, ${
+      formatCoord(bounds.getCenter().lng)
     }`,
   );
 
-  // Handle interactions with the cache
+  // Handle cache interactions with a popup
   rect.bindPopup(() => {
-    // Retrieve the current number of coins from the cache map
-    let numCoins = cacheCoinsMap.get(cacheKey) || 0;
-
-    // The popup offers a description and button
     const popupDiv = document.createElement("div");
     popupDiv.innerHTML = `
-                <div>Cache ${bounds.getCenter().lat}:${bounds.getCenter().lng}.</div>
-                <div>Has <span id="value">${numCoins}</span> coins.</div>
-                <button id="collect">collect</button>
-                <button id="deposit">deposit</button>`;
+      <div>Cache ${bounds.getCenter().lat}:${bounds.getCenter().lng}.</div>
+      <div>Coins in cache:</div>
+      <ul id="coinList">${
+      cache.coins.map((coin) =>
+        `<li>${cell.lat}:${cell.lng}#${coin.serial}</li>`
+      ).join("")
+    }</ul>
+      <button id="collect">Collect</button>
+      <button id="deposit">Deposit</button>`;
 
-    // Clicking the button decrements the cache's value and increments the player's points
-    popupDiv
-      .querySelector<HTMLButtonElement>("#collect")!
-      .addEventListener("click", () => {
-        if (numCoins > 0) {
-          numCoins--;
-          cacheCoinsMap.set(cacheKey, numCoins); // Update the cache's coin count
-          popupDiv.querySelector<HTMLSpanElement>("#value")!.innerHTML =
-            numCoins.toString();
-          coins++;
-          inventory.innerHTML = `You have ${coins} coins`;
+    popupDiv.querySelector<HTMLButtonElement>("#collect")!.addEventListener(
+      "click",
+      () => {
+        if (cache.coins.length > 0) {
+          const coin = cache.coins.pop()!;
+          updateInventory(coin, "add");
+          updatePopupCoins(cache.coins, popupDiv);
         }
-      });
-    // Add another button to deposit coins
-    popupDiv
-      .querySelector<HTMLButtonElement>("#deposit")!
-      .addEventListener("click", () => {
-        if (coins > 0) {
-          coins--;
-          numCoins++;
-          cacheCoinsMap.set(cacheKey, numCoins); // Update the cache's coin count
-          popupDiv.querySelector<HTMLSpanElement>("#value")!.innerHTML =
-            numCoins.toString();
-          inventory.innerHTML = `You have ${coins} coins`;
+      },
+    );
+
+    popupDiv.querySelector<HTMLButtonElement>("#deposit")!.addEventListener(
+      "click",
+      () => {
+        const playerCoins = playerInventory.coins;
+        if (playerCoins.length > 0) {
+          const coin = playerCoins.pop()!;
+          cache.coins.push(coin);
+          updateInventory(coin, "remove");
+          updatePopupCoins(cache.coins, popupDiv);
         }
-      });
+      },
+    );
+    updatePopupCoins(cache.coins, popupDiv);
+
     return popupDiv;
   });
 }
 
-// Example usage in the neighborhood spawning logic
+// Spawn caches across neighborhood grid based on spawn probability
 for (let i = -NEIGHBORHOOD_SIZE; i <= NEIGHBORHOOD_SIZE; i++) {
   for (let j = -NEIGHBORHOOD_SIZE; j <= NEIGHBORHOOD_SIZE; j++) {
     if (luck([i, j, "spawn"].toString()) < CACHE_SPAWN_PROBABILITY) {
