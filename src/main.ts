@@ -160,11 +160,18 @@ function updatePopupCoins(coins: Coin[], popupDiv: HTMLDivElement) {
   ).join("");
 }
 
+// Convert latitude and longitude to global grid coordinates based on Null Island
+function latLngToGrid(lat: number, lng: number) {
+  const i = Math.floor(lat / TILE_DEGREES);
+  const j = Math.floor(lng / TILE_DEGREES);
+  return { i, j };
+}
+
 // Add caches with coins to the map by latitude and longitude
 function spawnCache(i: number, j: number) {
-  // Calculate latitude and longitude based on i, j offsets from origin
-  const lat = OAKES_CLASSROOM.lat + i * TILE_DEGREES;
-  const lng = OAKES_CLASSROOM.lng + j * TILE_DEGREES;
+  // Calculate latitude and longitude based on global i, j grid coordinates
+  const lat = i * TILE_DEGREES;
+  const lng = j * TILE_DEGREES;
   const cell = getCell(lat, lng);
   const cacheKey = `${cell.lat}:${cell.lng}`;
 
@@ -192,21 +199,17 @@ function spawnCache(i: number, j: number) {
   const rect = leaflet.rectangle(bounds);
   rect.addTo(map);
   rect.bindTooltip(
-    `Cache at ${formatCoord(bounds.getCenter().lat)}, ${
-      formatCoord(bounds.getCenter().lng)
-    }`,
+    `Cache at global grid cell {i: ${i}, j: ${j}}`,
   );
 
   // Handle cache interactions with a popup
   rect.bindPopup(() => {
     const popupDiv = document.createElement("div");
     popupDiv.innerHTML = `
-      <div>Cache ${bounds.getCenter().lat}:${bounds.getCenter().lng}.</div>
+      <div>Cache at global grid cell {i: ${i}, j: ${j}}.</div>
       <div>Coins in cache:</div>
       <ul id="coinList">${
-      cache.coins.map((coin) =>
-        `<li>${cell.lat}:${cell.lng}#${coin.serial}</li>`
-      ).join("")
+      cache.coins.map((coin) => `<li>${i}:${j}#${coin.serial}</li>`).join("")
     }</ul>
       <button id="collect">Collect</button>
       <button id="deposit">Deposit</button>`;
@@ -240,9 +243,23 @@ function spawnCache(i: number, j: number) {
   });
 }
 
-// Spawn caches across neighborhood grid based on spawn probability
-for (let i = -NEIGHBORHOOD_SIZE; i <= NEIGHBORHOOD_SIZE; i++) {
-  for (let j = -NEIGHBORHOOD_SIZE; j <= NEIGHBORHOOD_SIZE; j++) {
+// Spawn caches across neighborhood grid using global grid cell indices
+for (
+  let i = latLngToGrid(OAKES_CLASSROOM.lat, OAKES_CLASSROOM.lng).i -
+    NEIGHBORHOOD_SIZE;
+  i <=
+    latLngToGrid(OAKES_CLASSROOM.lat, OAKES_CLASSROOM.lng).i +
+      NEIGHBORHOOD_SIZE;
+  i++
+) {
+  for (
+    let j = latLngToGrid(OAKES_CLASSROOM.lat, OAKES_CLASSROOM.lng).j -
+      NEIGHBORHOOD_SIZE;
+    j <=
+      latLngToGrid(OAKES_CLASSROOM.lat, OAKES_CLASSROOM.lng).j +
+        NEIGHBORHOOD_SIZE;
+    j++
+  ) {
     if (luck([i, j, "spawn"].toString()) < CACHE_SPAWN_PROBABILITY) {
       spawnCache(i, j);
     }
