@@ -34,27 +34,30 @@ interface Coin {
   serial: number;
 }
 
-// Create a div function
-function createDiv() {
+// Utility function to create a div element
+function createDiv(innerHTML = "", styles: Partial<CSSStyleDeclaration> = {}) {
   const div = document.createElement("div");
+  div.innerHTML = innerHTML;
+  Object.assign(div.style, styles);
   return div;
 }
 
-// Create div for app title
-const appTitle = createDiv();
-appTitle.innerHTML = "Geocoin Carrier";
-appTitle.style.textAlign = "center";
-appTitle.style.fontSize = "2rem";
-appTitle.style.fontWeight = "bold";
+// App title div
+const appTitle = createDiv("Geocoin Carrier", {
+  textAlign: "center",
+  fontSize: "2rem",
+  fontWeight: "bold",
+});
 document.body.appendChild(appTitle);
 
-// Create div for control panel
-const controlPanel = createDiv();
-controlPanel.style.display = "flex";
-controlPanel.style.justifyContent = "center";
+// Control panel div
+const controlPanel = createDiv("", {
+  display: "flex",
+  justifyContent: "center",
+});
 document.body.appendChild(controlPanel);
 
-// Create movement buttons
+// Movement buttons
 const directions = ["⬆️", "⬇️", "⬅️", "➡️"];
 const movementButtons = directions.map((dir) => {
   const button = document.createElement("button");
@@ -64,20 +67,18 @@ const movementButtons = directions.map((dir) => {
   return button;
 });
 
-// Create div for map
-const mapDiv = createDiv();
-mapDiv.style.width = "100vw";
-mapDiv.style.height = "50vh";
+// Map div
+const mapDiv = createDiv("", { width: "100vw", height: "50vh" });
 document.body.appendChild(mapDiv);
 
-// Create div for inventory
-const inventory = createDiv();
-inventory.style.display = "flex";
-inventory.style.justifyContent = "center";
+// Inventory div
+const inventory = createDiv("Inventory: No coins collected.", {
+  display: "flex",
+  justifyContent: "center",
+});
 document.body.appendChild(inventory);
-inventory.innerHTML = "Inventory: No coins collected.";
 
-// Classroom location
+// Initial player location
 let playerLocation = leaflet.latLng(36.98949379578401, -122.06277128548504);
 
 // Gameplay parameters
@@ -86,7 +87,7 @@ const TILE_DEGREES = 1e-4;
 const NEIGHBORHOOD_SIZE = 8;
 const CACHE_SPAWN_PROBABILITY = 0.1;
 
-// Create the map
+// Initialize map
 const map = leaflet.map(mapDiv, {
   center: playerLocation,
   zoom: GAMEPLAY_ZOOM_LEVEL,
@@ -105,7 +106,7 @@ leaflet
   })
   .addTo(map);
 
-// Add player marker
+// Player marker with tooltip
 const playerMarker = leaflet.marker(playerLocation);
 playerMarker.bindTooltip(
   `Player at ${formatCoord(playerLocation.lat)}, ${
@@ -114,10 +115,8 @@ playerMarker.bindTooltip(
 );
 playerMarker.addTo(map);
 
-// Map for unique cache data storage
+// Cache storage and memento storage
 const cacheDataMap = new Map<string, Cache>();
-
-// Cache mementos for state persistence
 const cacheMementos: CacheMemento = {};
 
 // Flyweight pattern for unique Cell instances
@@ -133,24 +132,23 @@ const getCell: CellFlyweight["getCell"] = (lat, lng) => {
   return cellMap.get(key)!;
 };
 
-// Player inventory management
-const playerInventory = {
-  coins: [] as Coin[],
-};
+// Player inventory
+const playerInventory = { coins: [] as Coin[] };
 
 // Format latitude or longitude
 function formatCoord(coord: number) {
-  return coord >= 0 ? Math.floor(coord * 10000) : Math.ceil(coord * 10000);
+  return Math.round(coord * 10000);
 }
 
 // Update inventory UI
 function updateInventory(coin: Coin, action: "add" | "remove") {
-  if (action === "add") {
-    playerInventory.coins.push(coin);
-  } else {
-    playerInventory.coins = playerInventory.coins.filter((c) =>
-      !(c.cell.lat === formatCoord(coin.cell.lat) &&
-        c.cell.lng === formatCoord(coin.cell.lng) && c.serial === coin.serial)
+  if (action === "add") playerInventory.coins.push(coin);
+  else {
+    playerInventory.coins = playerInventory.coins.filter(
+      (c) =>
+        !(c.cell.lat === formatCoord(coin.cell.lat) &&
+          c.cell.lng === formatCoord(coin.cell.lng) &&
+          c.serial === coin.serial),
     );
   }
   inventory.innerHTML = `Inventory: ${
@@ -174,11 +172,12 @@ function updatePopupCoins(coins: Coin[], popupDiv: HTMLDivElement) {
   ).join("");
 }
 
-// Convert latitude and longitude to global grid coordinates based on Null Island
+// Convert latitude and longitude to global grid coordinates
 function latLngToGrid(lat: number, lng: number) {
-  const i = Math.floor(lat / TILE_DEGREES);
-  const j = Math.floor(lng / TILE_DEGREES);
-  return { i, j };
+  return {
+    i: Math.floor(lat / TILE_DEGREES),
+    j: Math.floor(lng / TILE_DEGREES),
+  };
 }
 
 // Add caches with coins to the map by latitude and longitude
@@ -193,13 +192,9 @@ function spawnCache(i: number, j: number) {
     if (mementoCache) {
       cacheDataMap.set(cacheKey, mementoCache);
     } else {
-      const initialCoins = Math.floor(
-        luck([lat, lng, "initialValue"].toString()) * 10,
-      );
-      const coins: Coin[] = [];
-      for (let serial = 0; serial < initialCoins; serial++) {
-        coins.push({ cell, serial });
-      }
+      const coins: Coin[] = Array.from({
+        length: Math.floor(luck([lat, lng, "initialValue"].toString()) * 10),
+      }, (_, serial) => ({ cell, serial }));
       cacheDataMap.set(cacheKey, { cell, coins });
     }
   }
@@ -207,14 +202,13 @@ function spawnCache(i: number, j: number) {
   const cache = cacheDataMap.get(cacheKey)!;
   cacheMementos[cacheKey] = cache;
 
-  const bounds = leaflet.latLngBounds([
-    [lat, lng],
-    [lat + TILE_DEGREES, lng + TILE_DEGREES],
-  ]);
-
-  const rect = leaflet.rectangle(bounds);
-  rect.addTo(map);
-  rect.bindTooltip(`Cache at global grid cell {i: ${i}, j: ${j}}`);
+  const bounds = leaflet.latLngBounds([[lat, lng], [
+    lat + TILE_DEGREES,
+    lng + TILE_DEGREES,
+  ]]);
+  const rect = leaflet.rectangle(bounds).addTo(map).bindTooltip(
+    `Cache at global grid cell {i: ${i}, j: ${j}}`,
+  );
 
   rect.bindPopup(() => {
     const popupDiv = document.createElement("div");
@@ -227,29 +221,22 @@ function spawnCache(i: number, j: number) {
       <button id="collect">Collect</button>
       <button id="deposit">Deposit</button>`;
 
-    popupDiv.querySelector<HTMLButtonElement>("#collect")!.addEventListener(
-      "click",
-      () => {
-        if (cache.coins.length > 0) {
-          const coin = cache.coins.pop()!;
-          updateInventory(coin, "add");
-          updatePopupCoins(cache.coins, popupDiv);
-        }
-      },
-    );
+    popupDiv.querySelector("#collect")!.addEventListener("click", () => {
+      if (cache.coins.length > 0) {
+        const coin = cache.coins.pop()!;
+        updateInventory(coin, "add");
+        updatePopupCoins(cache.coins, popupDiv);
+      }
+    });
 
-    popupDiv.querySelector<HTMLButtonElement>("#deposit")!.addEventListener(
-      "click",
-      () => {
-        const playerCoins = playerInventory.coins;
-        if (playerCoins.length > 0) {
-          const coin = playerCoins.pop()!;
-          cache.coins.push(coin);
-          updateInventory(coin, "remove");
-          updatePopupCoins(cache.coins, popupDiv);
-        }
-      },
-    );
+    popupDiv.querySelector("#deposit")!.addEventListener("click", () => {
+      if (playerInventory.coins.length > 0) {
+        const coin = playerInventory.coins.pop()!;
+        cache.coins.push(coin);
+        updateInventory(coin, "remove");
+        updatePopupCoins(cache.coins, popupDiv);
+      }
+    });
     updatePopupCoins(cache.coins, popupDiv);
 
     return popupDiv;
@@ -258,6 +245,7 @@ function spawnCache(i: number, j: number) {
 
 // Move player position based on direction
 function movePlayer(deltaLat: number, deltaLng: number) {
+  // Update player location by creating a new LatLng with adjusted coordinates
   playerLocation = leaflet.latLng(
     playerLocation.lat + deltaLat,
     playerLocation.lng + deltaLng,
@@ -267,8 +255,6 @@ function movePlayer(deltaLat: number, deltaLng: number) {
 
   // Clear out-of-view caches
   cacheDataMap.clear();
-
-  // undraw the caches
   map.eachLayer((layer) => {
     if (layer instanceof leaflet.Rectangle) {
       map.removeLayer(layer);
@@ -288,24 +274,21 @@ function movePlayer(deltaLat: number, deltaLng: number) {
   }
 }
 
-// Add event listeners to movement buttons
-movementButtons[0].addEventListener("click", () => movePlayer(TILE_DEGREES, 0)); // ⬆️
-movementButtons[1].addEventListener(
-  "click",
-  () => movePlayer(-TILE_DEGREES, 0),
-); // ⬇️
-movementButtons[2].addEventListener(
-  "click",
-  () => movePlayer(0, -TILE_DEGREES),
-); // ⬅️
-movementButtons[3].addEventListener("click", () => movePlayer(0, TILE_DEGREES)); // ➡️
+// Define movement deltas for each direction to avoid variable naming conflict
+const movementDeltas: [number, number][] = [
+  [TILE_DEGREES, 0], // ⬆️
+  [-TILE_DEGREES, 0], // ⬇️
+  [0, -TILE_DEGREES], // ⬅️
+  [0, TILE_DEGREES], // ➡️
+];
 
-// Spawn caches near the new location
-const { i, j } = latLngToGrid(playerLocation.lat, playerLocation.lng);
-for (let di = -NEIGHBORHOOD_SIZE; di <= NEIGHBORHOOD_SIZE; di++) {
-  for (let dj = -NEIGHBORHOOD_SIZE; dj <= NEIGHBORHOOD_SIZE; dj++) {
-    if (luck([i + di, j + dj, "spawn"].toString()) < CACHE_SPAWN_PROBABILITY) {
-      spawnCache(i + di, j + dj);
-    }
-  }
-}
+// Add event listeners for each movement button
+movementButtons.forEach((button, index) =>
+  button.addEventListener(
+    "click",
+    () => movePlayer(movementDeltas[index][0], movementDeltas[index][1]),
+  )
+);
+
+// Spawn initial caches
+movePlayer(0, 0);
