@@ -23,6 +23,11 @@ interface Cache {
   coins: Coin[];
 }
 
+// Memento pattern for cache state preservation
+interface CacheMemento {
+  [key: string]: Cache;
+}
+
 // Interface for coin
 interface Coin {
   cell: Cell;
@@ -49,6 +54,16 @@ controlPanel.style.display = "flex";
 controlPanel.style.justifyContent = "center";
 document.body.appendChild(controlPanel);
 
+// Create movement buttons
+const directions = ["⬆️", "⬇️", "⬅️", "➡️"];
+const movementButtons = directions.map((dir) => {
+  const button = document.createElement("button");
+  button.innerText = dir;
+  button.style.margin = "5px";
+  controlPanel.appendChild(button);
+  return button;
+});
+
 // Create div for map
 const mapDiv = createDiv();
 mapDiv.style.width = "100vw";
@@ -63,7 +78,7 @@ document.body.appendChild(inventory);
 inventory.innerHTML = "Inventory: No coins collected.";
 
 // Classroom location
-const OAKES_CLASSROOM = leaflet.latLng(36.98949379578401, -122.06277128548504);
+let playerLocation = leaflet.latLng(36.98949379578401, -122.06277128548504);
 
 // Gameplay parameters
 const GAMEPLAY_ZOOM_LEVEL = 19;
@@ -73,7 +88,7 @@ const CACHE_SPAWN_PROBABILITY = 0.1;
 
 // Create the map
 const map = leaflet.map(mapDiv, {
-  center: OAKES_CLASSROOM,
+  center: playerLocation,
   zoom: GAMEPLAY_ZOOM_LEVEL,
   minZoom: GAMEPLAY_ZOOM_LEVEL,
   maxZoom: GAMEPLAY_ZOOM_LEVEL,
@@ -91,16 +106,19 @@ leaflet
   .addTo(map);
 
 // Add player marker
-const playerMarker = leaflet.marker(OAKES_CLASSROOM);
+const playerMarker = leaflet.marker(playerLocation);
 playerMarker.bindTooltip(
-  `Player at ${formatCoord(OAKES_CLASSROOM.lat)}, ${
-    formatCoord(OAKES_CLASSROOM.lng)
+  `Player at ${formatCoord(playerLocation.lat)}, ${
+    formatCoord(playerLocation.lng)
   }`,
 );
 playerMarker.addTo(map);
 
 // Map for unique cache data storage
 const cacheDataMap = new Map<string, Cache>();
+
+// Cache mementos for state persistence
+const cacheMementos: CacheMemento = {};
 
 // Flyweight pattern for unique Cell instances
 interface CellFlyweight {
@@ -122,11 +140,7 @@ const playerInventory = {
 
 // Format latitude or longitude
 function formatCoord(coord: number) {
-  if (coord >= 0) {
-    return Math.floor(coord * 10000);
-  } else {
-    return Math.ceil(coord * 10000);
-  }
+  return coord >= 0 ? Math.floor(coord * 10000) : Math.ceil(coord * 10000);
 }
 
 // Update inventory UI
@@ -169,40 +183,39 @@ function latLngToGrid(lat: number, lng: number) {
 
 // Add caches with coins to the map by latitude and longitude
 function spawnCache(i: number, j: number) {
-  // Calculate latitude and longitude based on global i, j grid coordinates
   const lat = i * TILE_DEGREES;
   const lng = j * TILE_DEGREES;
   const cell = getCell(lat, lng);
   const cacheKey = `${cell.lat}:${cell.lng}`;
 
-  // Initialize cache and coins if it doesn't exist
   if (!cacheDataMap.has(cacheKey)) {
-    const initialCoins = Math.floor(
-      luck([lat, lng, "initialValue"].toString()) * 10,
-    );
-    const coins: Coin[] = [];
-    for (let serial = 0; serial < initialCoins; serial++) {
-      coins.push({ cell, serial });
+    const mementoCache = cacheMementos[cacheKey];
+    if (mementoCache) {
+      cacheDataMap.set(cacheKey, mementoCache);
+    } else {
+      const initialCoins = Math.floor(
+        luck([lat, lng, "initialValue"].toString()) * 10,
+      );
+      const coins: Coin[] = [];
+      for (let serial = 0; serial < initialCoins; serial++) {
+        coins.push({ cell, serial });
+      }
+      cacheDataMap.set(cacheKey, { cell, coins });
     }
-    cacheDataMap.set(cacheKey, { cell, coins });
   }
 
   const cache = cacheDataMap.get(cacheKey)!;
+  cacheMementos[cacheKey] = cache;
 
-  // Define bounds for cache on map
   const bounds = leaflet.latLngBounds([
     [lat, lng],
     [lat + TILE_DEGREES, lng + TILE_DEGREES],
   ]);
 
-  // Rectangle to represent cache
   const rect = leaflet.rectangle(bounds);
   rect.addTo(map);
-  rect.bindTooltip(
-    `Cache at global grid cell {i: ${i}, j: ${j}}`,
-  );
+  rect.bindTooltip(`Cache at global grid cell {i: ${i}, j: ${j}}`);
 
-  // Handle cache interactions with a popup
   rect.bindPopup(() => {
     const popupDiv = document.createElement("div");
     popupDiv.innerHTML = `
@@ -243,25 +256,56 @@ function spawnCache(i: number, j: number) {
   });
 }
 
-// Spawn caches across neighborhood grid using global grid cell indices
-for (
-  let i = latLngToGrid(OAKES_CLASSROOM.lat, OAKES_CLASSROOM.lng).i -
-    NEIGHBORHOOD_SIZE;
-  i <=
-    latLngToGrid(OAKES_CLASSROOM.lat, OAKES_CLASSROOM.lng).i +
-      NEIGHBORHOOD_SIZE;
-  i++
-) {
-  for (
-    let j = latLngToGrid(OAKES_CLASSROOM.lat, OAKES_CLASSROOM.lng).j -
-      NEIGHBORHOOD_SIZE;
-    j <=
-      latLngToGrid(OAKES_CLASSROOM.lat, OAKES_CLASSROOM.lng).j +
-        NEIGHBORHOOD_SIZE;
-    j++
-  ) {
-    if (luck([i, j, "spawn"].toString()) < CACHE_SPAWN_PROBABILITY) {
-      spawnCache(i, j);
+// Move player position based on direction
+function movePlayer(deltaLat: number, deltaLng: number) {
+  playerLocation = leaflet.latLng(
+    playerLocation.lat + deltaLat,
+    playerLocation.lng + deltaLng,
+  );
+  playerMarker.setLatLng(playerLocation);
+  map.setView(playerLocation);
+
+  // Clear out-of-view caches
+  cacheDataMap.clear();
+
+  // undraw the caches
+  map.eachLayer((layer) => {
+    if (layer instanceof leaflet.Rectangle) {
+      map.removeLayer(layer);
+    }
+  });
+
+  // Spawn caches near the new location
+  const { i, j } = latLngToGrid(playerLocation.lat, playerLocation.lng);
+  for (let di = -NEIGHBORHOOD_SIZE; di <= NEIGHBORHOOD_SIZE; di++) {
+    for (let dj = -NEIGHBORHOOD_SIZE; dj <= NEIGHBORHOOD_SIZE; dj++) {
+      if (
+        luck([i + di, j + dj, "spawn"].toString()) < CACHE_SPAWN_PROBABILITY
+      ) {
+        spawnCache(i + di, j + dj);
+      }
+    }
+  }
+}
+
+// Add event listeners to movement buttons
+movementButtons[0].addEventListener("click", () => movePlayer(TILE_DEGREES, 0)); // ⬆️
+movementButtons[1].addEventListener(
+  "click",
+  () => movePlayer(-TILE_DEGREES, 0),
+); // ⬇️
+movementButtons[2].addEventListener(
+  "click",
+  () => movePlayer(0, -TILE_DEGREES),
+); // ⬅️
+movementButtons[3].addEventListener("click", () => movePlayer(0, TILE_DEGREES)); // ➡️
+
+// Spawn caches near the new location
+const { i, j } = latLngToGrid(playerLocation.lat, playerLocation.lng);
+for (let di = -NEIGHBORHOOD_SIZE; di <= NEIGHBORHOOD_SIZE; di++) {
+  for (let dj = -NEIGHBORHOOD_SIZE; dj <= NEIGHBORHOOD_SIZE; dj++) {
+    if (luck([i + di, j + dj, "spawn"].toString()) < CACHE_SPAWN_PROBABILITY) {
+      spawnCache(i + di, j + dj);
     }
   }
 }
