@@ -78,6 +78,13 @@ const inventory = createDiv("Inventory: No coins collected.", {
 });
 document.body.appendChild(inventory);
 
+// Change the css style of the inventory display so that the coins are displayed in the next line if the player has too many coins
+inventory.style.flexWrap = "wrap";
+inventory.style.maxWidth = "100%";
+inventory.style.overflow = "auto";
+inventory.style.textAlign = "center";
+inventory.style.margin = "10px";
+
 // Retrieve saved state from localStorage
 const savedState = JSON.parse(localStorage.getItem("gameState") || "{}");
 
