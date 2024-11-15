@@ -78,8 +78,13 @@ const inventory = createDiv("Inventory: No coins collected.", {
 });
 document.body.appendChild(inventory);
 
-// Initial player location
-let playerLocation = leaflet.latLng(36.98949379578401, -122.06277128548504);
+// Retrieve saved state from localStorage
+const savedState = JSON.parse(localStorage.getItem("gameState") || "{}");
+
+// Initial player location, or load from saved state
+let playerLocation = savedState.playerLocation
+  ? leaflet.latLng(savedState.playerLocation.lat, savedState.playerLocation.lng)
+  : leaflet.latLng(36.98949379578401, -122.06277128548504);
 let watchId: number | null = null;
 
 // Gameplay parameters
@@ -120,7 +125,7 @@ playerMarker.addTo(map);
 
 // Cache storage and memento storage
 const cacheDataMap = new Map<string, Cache>();
-const cacheMementos: CacheMemento = {};
+const cacheMementos: CacheMemento = savedState.cacheMementos || {};
 
 // Flyweight pattern for unique Cell instances
 interface CellFlyweight {
@@ -135,35 +140,42 @@ const getCell: CellFlyweight["getCell"] = (lat, lng) => {
   return cellMap.get(key)!;
 };
 
-// Player inventory
-const playerInventory = { coins: [] as Coin[] };
+// Initialize player inventory with saved coins, if any
+const playerInventory = { coins: savedState.coins || [] };
 
 // Format latitude or longitude
 function formatCoord(coord: number) {
   return Math.round(coord * 10000);
 }
 
-// Update inventory UI
-function updateInventory(coin: Coin, action: "add" | "remove") {
-  if (action === "add") playerInventory.coins.push(coin);
-  else {
+// Update inventory UI, now with an optional parameter for initial load
+function updateInventory(
+  coin: Coin | null = null,
+  action: "add" | "remove" | "init" = "init",
+) {
+  if (action === "add" && coin) {
+    playerInventory.coins.push(coin);
+  } else if (action === "remove" && coin) {
     playerInventory.coins = playerInventory.coins.filter(
-      (c) =>
+      (c: Coin) =>
         !(c.cell.lat === formatCoord(coin.cell.lat) &&
           c.cell.lng === formatCoord(coin.cell.lng) &&
           c.serial === coin.serial),
     );
   }
+
+  // Update inventory display
   inventory.innerHTML = `Inventory: ${
     playerInventory.coins.length > 0
-      ? playerInventory.coins.map((coin) =>
+      ? playerInventory.coins.map((coin: Coin) =>
         `<span class="coin-id" data-lat="${coin.cell.lat}" data-lng="${coin.cell.lng}">${
           formatCoord(coin.cell.lat)
         }:${formatCoord(coin.cell.lng)}#${coin.serial}</span>`
       ).join(", ")
       : "No coins collected."
   }`;
-  // Add event listeners for centering map on coin location
+
+  // Add event listeners to inventory items for map centering functionality
   document.querySelectorAll(".coin-id").forEach((element) => {
     element.addEventListener("click", (e) => {
       const target = e.target as HTMLElement;
@@ -172,6 +184,16 @@ function updateInventory(coin: Coin, action: "add" | "remove") {
       map.setView([lat, lng], GAMEPLAY_ZOOM_LEVEL);
     });
   });
+}
+
+// Save game state to localStorage
+function saveGameState() {
+  const gameState = {
+    playerLocation,
+    coins: playerInventory.coins,
+    cacheMementos,
+  };
+  localStorage.setItem("gameState", JSON.stringify(gameState));
 }
 
 // Update popup with current coin list
@@ -238,6 +260,7 @@ function spawnCache(i: number, j: number) {
         const coin = cache.coins.pop()!;
         updateInventory(coin, "add");
         updatePopupCoins(cache.coins, popupDiv);
+        saveGameState(); // Save state on collect
       }
     });
 
@@ -247,6 +270,7 @@ function spawnCache(i: number, j: number) {
         cache.coins.push(coin);
         updateInventory(coin, "remove");
         updatePopupCoins(cache.coins, popupDiv);
+        saveGameState(); // Save state on deposit
       }
     });
     updatePopupCoins(cache.coins, popupDiv);
@@ -286,6 +310,8 @@ function movePlayer(deltaLat: number, deltaLng: number) {
       }
     }
   }
+
+  saveGameState(); // Save state on move
 }
 
 // Define movement deltas for each direction to avoid variable naming conflict
@@ -318,6 +344,7 @@ movementButtons.forEach((button, index) =>
         playerInventory.coins = [];
         updateInventory({} as Coin, "remove");
         polyline.setLatLngs([]);
+        localStorage.removeItem("gameState"); // Clear saved state
       }
     } else {
       movePlayer(movementDeltas[index][0], movementDeltas[index][1]);
@@ -327,3 +354,6 @@ movementButtons.forEach((button, index) =>
 
 // Spawn initial caches
 movePlayer(0, 0);
+
+// Update the inventory display on page load
+updateInventory(null, "init");
