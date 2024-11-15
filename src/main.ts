@@ -58,7 +58,7 @@ const controlPanel = createDiv("", {
 document.body.appendChild(controlPanel);
 
 // Movement buttons
-const directions = ["⬆️", "⬇️", "⬅️", "➡️"];
+const directions = ["⬆️", "⬇️", "⬅️", "➡️", "🌐", "🚮"];
 const movementButtons = directions.map((dir) => {
   const button = document.createElement("button");
   button.innerText = dir;
@@ -80,6 +80,7 @@ document.body.appendChild(inventory);
 
 // Initial player location
 let playerLocation = leaflet.latLng(36.98949379578401, -122.06277128548504);
+let watchId: number | null = null;
 
 // Gameplay parameters
 const GAMEPLAY_ZOOM_LEVEL = 19;
@@ -96,6 +97,8 @@ const map = leaflet.map(mapDiv, {
   zoomControl: false,
   scrollWheelZoom: false,
 });
+
+const polyline = leaflet.polyline([], { color: "blue" }).addTo(map);
 
 // Background tile layer
 leaflet
@@ -154,12 +157,21 @@ function updateInventory(coin: Coin, action: "add" | "remove") {
   inventory.innerHTML = `Inventory: ${
     playerInventory.coins.length > 0
       ? playerInventory.coins.map((coin) =>
-        `${formatCoord(coin.cell.lat)}:${
-          formatCoord(coin.cell.lng)
-        }#${coin.serial}`
+        `<span class="coin-id" data-lat="${coin.cell.lat}" data-lng="${coin.cell.lng}">${
+          formatCoord(coin.cell.lat)
+        }:${formatCoord(coin.cell.lng)}#${coin.serial}</span>`
       ).join(", ")
       : "No coins collected."
   }`;
+  // Add event listeners for centering map on coin location
+  document.querySelectorAll(".coin-id").forEach((element) => {
+    element.addEventListener("click", (e) => {
+      const target = e.target as HTMLElement;
+      const lat = parseFloat(target.dataset.lat!);
+      const lng = parseFloat(target.dataset.lng!);
+      map.setView([lat, lng], GAMEPLAY_ZOOM_LEVEL);
+    });
+  });
 }
 
 // Update popup with current coin list
@@ -253,6 +265,8 @@ function movePlayer(deltaLat: number, deltaLng: number) {
   playerMarker.setLatLng(playerLocation);
   map.setView(playerLocation);
 
+  polyline.addLatLng(playerLocation);
+
   // Clear out-of-view caches
   cacheDataMap.clear();
   map.eachLayer((layer) => {
@@ -284,10 +298,31 @@ const movementDeltas: [number, number][] = [
 
 // Add event listeners for each movement button
 movementButtons.forEach((button, index) =>
-  button.addEventListener(
-    "click",
-    () => movePlayer(movementDeltas[index][0], movementDeltas[index][1]),
-  )
+  button.addEventListener("click", () => {
+    if (directions[index] === "🌐") {
+      if (watchId) {
+        navigator.geolocation.clearWatch(watchId);
+        watchId = null;
+      } else {
+        watchId = navigator.geolocation.watchPosition(
+          (position) =>
+            movePlayer(
+              position.coords.latitude - playerLocation.lat,
+              position.coords.longitude - playerLocation.lng,
+            ),
+          console.error,
+        );
+      }
+    } else if (directions[index] === "🚮") {
+      if (confirm("Are you sure you want to reset the game state?")) {
+        playerInventory.coins = [];
+        updateInventory({} as Coin, "remove");
+        polyline.setLatLngs([]);
+      }
+    } else {
+      movePlayer(movementDeltas[index][0], movementDeltas[index][1]);
+    }
+  })
 );
 
 // Spawn initial caches
