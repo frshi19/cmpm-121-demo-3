@@ -240,69 +240,92 @@ function latLngToGrid(lat: number, lng: number) {
   };
 }
 
-// Add caches with coins to the map by latitude and longitude
-function spawnCache(i: number, j: number) {
+// Handles cache retrieval or creation
+function getOrCreateCache(i: number, j: number): Cache {
   const lat = i * TILE_DEGREES;
   const lng = j * TILE_DEGREES;
   const cell = getCell(lat, lng);
   const cacheKey = `${cell.lat}:${cell.lng}`;
 
+  // Check if exists in cacheDataMap or retrieve from cacheMementos
   if (!cacheDataMap.has(cacheKey)) {
     const mementoCache = cacheMementos[cacheKey];
     if (mementoCache) {
       cacheDataMap.set(cacheKey, mementoCache);
     } else {
-      const coins: Coin[] = Array.from({
-        length: Math.floor(luck([lat, lng, "initialValue"].toString()) * 10),
-      }, (_, serial) => ({ cell, serial }));
+      // Create a new cache
+      const coins: Coin[] = Array.from(
+        {
+          length: Math.floor(luck([lat, lng, "initialValue"].toString()) * 10),
+        },
+        (_, serial) => ({ cell, serial }),
+      );
       cacheDataMap.set(cacheKey, { cell, coins });
     }
   }
 
   const cache = cacheDataMap.get(cacheKey)!;
-  cacheMementos[cacheKey] = cache;
+  cacheMementos[cacheKey] = cache; // Ensure memento is updated
+  return cache;
+}
 
-  const bounds = leaflet.latLngBounds([[lat, lng], [
-    lat + TILE_DEGREES,
-    lng + TILE_DEGREES,
-  ]]);
+// Handles rendering cache on the map
+function drawCacheOnMap(cache: Cache, i: number, j: number) {
+  const bounds = leaflet.latLngBounds([
+    [cache.cell.lat, cache.cell.lng],
+    [cache.cell.lat + TILE_DEGREES, cache.cell.lng + TILE_DEGREES],
+  ]);
+
+  // Draw rectangle and bind tooltip
   const rect = leaflet.rectangle(bounds).addTo(map).bindTooltip(
     `Cache at global grid cell {i: ${i}, j: ${j}}`,
   );
 
-  rect.bindPopup(() => {
-    const popupDiv = document.createElement("div");
-    popupDiv.innerHTML = `
-      <div>Cache at global grid cell {i: ${i}, j: ${j}}.</div>
-      <div>Coins in cache:</div>
-      <ul id="coinList">${
-      cache.coins.map((coin) => `<li>${i}:${j}#${coin.serial}</li>`).join("")
-    }</ul>
-      <button id="collect">Collect</button>
-      <button id="deposit">Deposit</button>`;
+  rect.bindPopup(() => createCachePopup(cache, i, j));
+}
 
-    popupDiv.querySelector("#collect")!.addEventListener("click", () => {
-      if (cache.coins.length > 0) {
-        const coin = cache.coins.pop()!;
-        updateInventory(coin, "add");
-        updatePopupCoins(cache.coins, popupDiv);
-        saveGameState(); // Save state on collect
-      }
-    });
+// Creates the popup UI for a cache and sets up its buttons
+function createCachePopup(cache: Cache, i: number, j: number): HTMLDivElement {
+  const popupDiv = document.createElement("div");
+  popupDiv.innerHTML = `
+    <div>Cache at global grid cell {i: ${i}, j: ${j}}.</div>
+    <div>Coins in cache:</div>
+    <ul id="coinList">${
+    cache.coins
+      .map((coin) => `<li>${i}:${j}#${coin.serial}</li>`)
+      .join("")
+  }</ul>
+    <button id="collect">Collect</button>
+    <button id="deposit">Deposit</button>`;
 
-    popupDiv.querySelector("#deposit")!.addEventListener("click", () => {
-      if (playerInventory.coins.length > 0) {
-        const coin = playerInventory.coins.pop()!;
-        cache.coins.push(coin);
-        updateInventory(coin, "remove");
-        updatePopupCoins(cache.coins, popupDiv);
-        saveGameState(); // Save state on deposit
-      }
-    });
-    updatePopupCoins(cache.coins, popupDiv);
-
-    return popupDiv;
+  // Add event listeners to collect and deposit buttons
+  popupDiv.querySelector("#collect")!.addEventListener("click", () => {
+    if (cache.coins.length > 0) {
+      const coin = cache.coins.pop()!;
+      updateInventory(coin, "add");
+      updatePopupCoins(cache.coins, popupDiv);
+      saveGameState(); // Save state after collecting
+    }
   });
+
+  popupDiv.querySelector("#deposit")!.addEventListener("click", () => {
+    if (playerInventory.coins.length > 0) {
+      const coin = playerInventory.coins.pop()!;
+      cache.coins.push(coin);
+      updateInventory(coin, "remove");
+      updatePopupCoins(cache.coins, popupDiv);
+      saveGameState(); // Save state after depositing
+    }
+  });
+
+  updatePopupCoins(cache.coins, popupDiv);
+  return popupDiv;
+}
+
+// Combines all the extracted functions into the spawnCache function
+function spawnCache(i: number, j: number) {
+  const cache = getOrCreateCache(i, j); // Retrieve or create cache
+  drawCacheOnMap(cache, i, j); // Render the cache on the map
 }
 
 // Move player position based on direction
