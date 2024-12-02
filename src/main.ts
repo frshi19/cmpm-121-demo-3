@@ -328,39 +328,51 @@ function spawnCache(i: number, j: number) {
   drawCacheOnMap(cache, i, j); // Render the cache on the map
 }
 
-// Move player position based on direction
+// Moves the player and updates the polyline
 function movePlayer(deltaLat: number, deltaLng: number) {
   // Update player location by creating a new LatLng with adjusted coordinates
   playerLocation = leaflet.latLng(
     playerLocation.lat + deltaLat,
     playerLocation.lng + deltaLng,
   );
+
   playerMarker.setLatLng(playerLocation);
   map.setView(playerLocation);
 
+  // Update the player's path on the map
   polyline.addLatLng(playerLocation);
 
-  // Clear out-of-view caches
-  cacheDataMap.clear();
+  // Call helper functions
+  clearOutOfViewCaches();
+  spawnNearbyCaches();
+
+  // Save game state after every move
+  saveGameState();
+}
+
+// Clears out-of-view caches and removes their map layers
+function clearOutOfViewCaches() {
+  cacheDataMap.clear(); // Clear currently visible cache data
   map.eachLayer((layer) => {
     if (layer instanceof leaflet.Rectangle) {
-      map.removeLayer(layer);
+      map.removeLayer(layer); // Remove rectangle layers representing caches
     }
   });
+}
 
-  // Spawn caches near the new location
+// Spawns caches near the player's current location
+function spawnNearbyCaches() {
   const { i, j } = latLngToGrid(playerLocation.lat, playerLocation.lng);
+
   for (let di = -NEIGHBORHOOD_SIZE; di <= NEIGHBORHOOD_SIZE; di++) {
     for (let dj = -NEIGHBORHOOD_SIZE; dj <= NEIGHBORHOOD_SIZE; dj++) {
       if (
         luck([i + di, j + dj, "spawn"].toString()) < CACHE_SPAWN_PROBABILITY
       ) {
-        spawnCache(i + di, j + dj);
+        spawnCache(i + di, j + dj); // Use the refactored spawnCache function
       }
     }
   }
-
-  saveGameState(); // Save state on move
 }
 
 // Define movement deltas for each direction to avoid variable naming conflict
