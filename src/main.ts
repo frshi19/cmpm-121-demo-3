@@ -155,8 +155,8 @@ function formatCoord(coord: number) {
   return Math.round(coord * 10000);
 }
 
-// Update inventory UI, now with an optional parameter for initial load
-function updateInventory(
+// Updates the game state for the player's inventory
+function updateInventoryState(
   coin: Coin | null = null,
   action: "add" | "remove" | "init" = "init",
 ) {
@@ -165,24 +165,34 @@ function updateInventory(
   } else if (action === "remove" && coin) {
     playerInventory.coins = playerInventory.coins.filter(
       (c: Coin) =>
-        !(c.cell.lat === formatCoord(coin.cell.lat) &&
-          c.cell.lng === formatCoord(coin.cell.lng) &&
+        !(c.cell.lat === coin.cell.lat &&
+          c.cell.lng === coin.cell.lng &&
           c.serial === coin.serial),
     );
   }
 
-  // Update inventory display
+  // Save the updated game state after every change
+  saveGameState();
+}
+
+// Updates the UI to reflect the current state of the player's inventory
+function updateInventoryUI() {
   inventory.innerHTML = `Inventory: ${
     playerInventory.coins.length > 0
-      ? playerInventory.coins.map((coin: Coin) =>
-        `<span class="coin-id" data-lat="${coin.cell.lat}" data-lng="${coin.cell.lng}">${
-          formatCoord(coin.cell.lat)
-        }:${formatCoord(coin.cell.lng)}#${coin.serial}</span>`
-      ).join(", ")
+      ? playerInventory.coins
+        .map(
+          (coin: Coin) =>
+            `<span class="coin-id" data-lat="${coin.cell.lat}" data-lng="${coin.cell.lng}">
+              ${formatCoord(coin.cell.lat)}:${
+              formatCoord(coin.cell.lng)
+            }#${coin.serial}
+            </span>`,
+        )
+        .join(", ")
       : "No coins collected."
   }`;
 
-  // Add event listeners to inventory items for map centering functionality
+  // Add event listeners to center the map when an inventory item is clicked
   document.querySelectorAll(".coin-id").forEach((element) => {
     element.addEventListener("click", (e) => {
       const target = e.target as HTMLElement;
@@ -191,6 +201,15 @@ function updateInventory(
       map.setView([lat, lng], GAMEPLAY_ZOOM_LEVEL);
     });
   });
+}
+
+// Wrapper function to tie everything together
+function updateInventory(
+  coin: Coin | null = null,
+  action: "add" | "remove" | "init" = "init",
+) {
+  updateInventoryState(coin, action);
+  updateInventoryUI();
 }
 
 // Save game state to localStorage
